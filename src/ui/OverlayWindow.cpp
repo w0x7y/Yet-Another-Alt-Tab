@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cwctype>
 
 namespace advanced_alt_tab {
 
@@ -10,8 +11,11 @@ namespace {
 constexpr wchar_t kWindowClassName[] = L"AdvancedAltTabOverlayWindow";
 constexpr int kWindowWidth = 720;
 constexpr int kWindowHeight = 420;
+constexpr int kPadding = 24;
+constexpr int kSearchTop = 48;
+constexpr int kSearchHeight = 38;
 constexpr int kListLeft = 24;
-constexpr int kListTop = 64;
+constexpr int kListTop = 108;
 constexpr int kRowHeight = 28;
 constexpr size_t kMaxVisibleResults = 10;
 } // namespace
@@ -46,7 +50,9 @@ bool OverlayWindow::create() {
 }
 
 void OverlayWindow::show(const WindowList& windows) {
-    visibleWindows_ = windows;
+    allWindows_ = windows;
+    query_.clear();
+    applyFilter();
     selectedIndex_ = 0;
 
     const int screenWidth = GetSystemMetrics(SM_CXSCREEN);
@@ -106,6 +112,10 @@ LRESULT OverlayWindow::handleMessage(UINT message, WPARAM wparam, LPARAM lparam)
 
         break;
 
+    case WM_CHAR:
+        handleTextInput(static_cast<wchar_t>(wparam));
+        return 0;
+
     case WM_PAINT: {
         PAINTSTRUCT paint{};
         const HDC dc = BeginPaint(hwnd_, &paint);
@@ -117,6 +127,20 @@ LRESULT OverlayWindow::handleMessage(UINT message, WPARAM wparam, LPARAM lparam)
 
         int y = 24;
         TextOutW(dc, 24, y, L"Advanced Alt+Tab", 16);
+
+        RECT searchRect{
+            kPadding,
+            kSearchTop,
+            kWindowWidth - kPadding,
+            kSearchTop + kSearchHeight,
+        };
+        FillRect(dc, &searchRect, reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+        FrameRect(dc, &searchRect, reinterpret_cast<HBRUSH>(GetStockObject(GRAY_BRUSH)));
+
+        const std::wstring displayQuery = query_.empty() ? L"Search..." : query_;
+        SetTextColor(dc, query_.empty() ? RGB(160, 160, 160) : RGB(245, 245, 245));
+        TextOutW(dc, kPadding + 12, kSearchTop + 10, displayQuery.c_str(), static_cast<int>(displayQuery.size()));
+        SetTextColor(dc, RGB(245, 245, 245));
 
         for (size_t index = 0; index < visibleWindows_.size() && index < kMaxVisibleResults; ++index) {
             const auto& title = visibleWindows_[index].title;
@@ -133,6 +157,12 @@ LRESULT OverlayWindow::handleMessage(UINT message, WPARAM wparam, LPARAM lparam)
             }
 
             TextOutW(dc, 32, rowTop, title.c_str(), static_cast<int>(title.size()));
+        }
+
+        if (visibleWindows_.empty()) {
+            constexpr wchar_t noMatchesText[] = L"No matching windows";
+            SetTextColor(dc, RGB(190, 190, 190));
+            TextOutW(dc, 32, kListTop, noMatchesText, static_cast<int>(std::size(noMatchesText) - 1));
         }
 
         EndPaint(hwnd_, &paint);
@@ -158,6 +188,34 @@ void OverlayWindow::activateSelectedWindow() {
     }
 
     SetForegroundWindow(target);
+}
+
+void OverlayWindow::applyFilter() {
+    visibleWindows_ = searchEngine_.filter(allWindows_, query_);
+    selectedIndex_ = 0;
+    InvalidateRect(hwnd_, nullptr, TRUE);
+}
+
+void OverlayWindow::handleTextInput(wchar_t character) {
+    if (character == L'\b') {
+        if (!query_.empty()) {
+            query_.pop_back();
+            applyFilter();
+        }
+
+        return;
+    }
+
+    if (character == L'\r' || character == L'\n' || character == 27) {
+        return;
+    }
+
+    if (std::iswprint(character) == 0) {
+        return;
+    }
+
+    query_.push_back(character);
+    applyFilter();
 }
 
 void OverlayWindow::moveSelection(int direction) {

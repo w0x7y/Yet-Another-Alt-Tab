@@ -36,3 +36,8 @@ target_compile_options(AdvancedAltTab
     PRIVATE
         $<$<CXX_COMPILER_ID:MSVC>:/W4 /permissive->
 )
+
+target_link_libraries(AdvancedAltTab
+    PRIVATE
+        Dwmapi
+)
