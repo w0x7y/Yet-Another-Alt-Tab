@@ -2,12 +2,18 @@
 
 #include <windows.h>
 
+#include <algorithm>
+
 namespace advanced_alt_tab {
 
 namespace {
 constexpr wchar_t kWindowClassName[] = L"AdvancedAltTabOverlayWindow";
 constexpr int kWindowWidth = 720;
 constexpr int kWindowHeight = 420;
+constexpr int kListLeft = 24;
+constexpr int kListTop = 64;
+constexpr int kRowHeight = 28;
+constexpr size_t kMaxVisibleResults = 10;
 } // namespace
 
 OverlayWindow::OverlayWindow(HINSTANCE instance) : instance_{instance} {}
@@ -88,6 +94,16 @@ LRESULT OverlayWindow::handleMessage(UINT message, WPARAM wparam, LPARAM lparam)
             return 0;
         }
 
+        if (wparam == VK_UP) {
+            moveSelection(-1);
+            return 0;
+        }
+
+        if (wparam == VK_DOWN) {
+            moveSelection(1);
+            return 0;
+        }
+
         break;
 
     case WM_PAINT: {
@@ -101,12 +117,22 @@ LRESULT OverlayWindow::handleMessage(UINT message, WPARAM wparam, LPARAM lparam)
 
         int y = 24;
         TextOutW(dc, 24, y, L"Advanced Alt+Tab", 16);
-        y += 40;
 
-        for (size_t index = 0; index < visibleWindows_.size() && index < 10; ++index) {
+        for (size_t index = 0; index < visibleWindows_.size() && index < kMaxVisibleResults; ++index) {
             const auto& title = visibleWindows_[index].title;
-            TextOutW(dc, 32, y, title.c_str(), static_cast<int>(title.size()));
-            y += 28;
+            const int rowTop = kListTop + static_cast<int>(index) * kRowHeight;
+
+            if (index == selectedIndex_) {
+                RECT highlightRect{
+                    kListLeft,
+                    rowTop - 4,
+                    kWindowWidth - kListLeft,
+                    rowTop + kRowHeight - 4,
+                };
+                FillRect(dc, &highlightRect, reinterpret_cast<HBRUSH>(GetStockObject(GRAY_BRUSH)));
+            }
+
+            TextOutW(dc, 32, rowTop, title.c_str(), static_cast<int>(title.size()));
         }
 
         EndPaint(hwnd_, &paint);
@@ -132,6 +158,21 @@ void OverlayWindow::activateSelectedWindow() {
     }
 
     SetForegroundWindow(target);
+}
+
+void OverlayWindow::moveSelection(int direction) {
+    const size_t resultCount = std::min(visibleWindows_.size(), kMaxVisibleResults);
+    if (resultCount == 0) {
+        return;
+    }
+
+    if (direction < 0) {
+        selectedIndex_ = selectedIndex_ == 0 ? resultCount - 1 : selectedIndex_ - 1;
+    } else {
+        selectedIndex_ = (selectedIndex_ + 1) % resultCount;
+    }
+
+    InvalidateRect(hwnd_, nullptr, TRUE);
 }
 
 } // namespace advanced_alt_tab

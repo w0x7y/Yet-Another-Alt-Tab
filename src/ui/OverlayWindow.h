@@ -19,6 +19,7 @@ private:
 
     LRESULT handleMessage(UINT message, WPARAM wparam, LPARAM lparam);
     void activateSelectedWindow();
+    void moveSelection(int direction);
 
     HINSTANCE instance_;
     HWND hwnd_{};
