@@ -44,7 +44,8 @@ bool OverlayWindow::create() {
         nullptr,
         nullptr,
         instance_,
-        this);
+        this
+    );
 
     return hwnd_ != nullptr;
 }
