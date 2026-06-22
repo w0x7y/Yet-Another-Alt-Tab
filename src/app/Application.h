@@ -1,6 +1,5 @@
 #pragma once
 
-#include "core/SearchEngine.h"
 #include "core/WindowScanner.h"
 #include "hotkey/HotkeyManager.h"
 #include "ui/OverlayWindow.h"
@@ -21,7 +20,6 @@ private:
 
     HINSTANCE instance_;
     WindowScanner windowScanner_;
-    SearchEngine searchEngine_;
     HotkeyManager hotkeyManager_;
     OverlayWindow overlayWindow_;
     WindowList cachedWindows_;

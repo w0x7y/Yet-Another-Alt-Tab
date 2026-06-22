@@ -9,15 +9,54 @@ namespace advanced_alt_tab {
 
 namespace {
 constexpr wchar_t kWindowClassName[] = L"AdvancedAltTabOverlayWindow";
-constexpr int kWindowWidth = 720;
-constexpr int kWindowHeight = 420;
-constexpr int kPadding = 24;
-constexpr int kSearchTop = 48;
-constexpr int kSearchHeight = 38;
-constexpr int kListLeft = 24;
-constexpr int kListTop = 108;
-constexpr int kRowHeight = 28;
-constexpr size_t kMaxVisibleResults = 10;
+
+struct OverlayLayout {
+    int windowWidth = 540;
+    int windowHeight = 315;
+    int padding = 6;
+    int searchTop = 6;
+    int searchHeight = 38;
+    int searchTextInsetX = 12;
+    int searchTextInsetY = 10;
+    int listLeft = 24;
+    int listTextLeft = 32;
+    int listTop = 63;
+    int rowHeight = 28;
+    int selectionTopOffset = -4;
+    int selectionBottomOffset = -4;
+    size_t maxVisibleResults = 10;
+};
+
+struct OverlayTheme {
+    COLORREF background = RGB(44, 44, 44);
+    COLORREF searchBackground = RGB(38, 38, 38);
+    COLORREF border = RGB(76, 194, 255);
+    COLORREF selection = RGB(38, 38, 38);
+    COLORREF text = RGB(207, 207, 207);
+    COLORREF mutedText = RGB(160, 160, 160);
+    COLORREF emptyText = RGB(190, 190, 190);
+};
+
+struct OverlayText {
+    const wchar_t* searchPlaceholder = L"Search...";
+    const wchar_t* noMatches = L"No matching windows";
+};
+
+constexpr OverlayLayout kLayout{};
+constexpr OverlayTheme kTheme{};
+constexpr OverlayText kText{};
+
+void fillRect(HDC dc, const RECT& rect, COLORREF color) {
+    HBRUSH brush = CreateSolidBrush(color);
+    FillRect(dc, &rect, brush);
+    DeleteObject(brush);
+}
+
+void frameRect(HDC dc, const RECT& rect, COLORREF color) {
+    HBRUSH brush = CreateSolidBrush(color);
+    FrameRect(dc, &rect, brush);
+    DeleteObject(brush);
+}
 } // namespace
 
 OverlayWindow::OverlayWindow(HINSTANCE instance) : instance_{instance} {}
@@ -39,8 +78,8 @@ bool OverlayWindow::create() {
         WS_POPUP,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
-        kWindowWidth,
-        kWindowHeight,
+        kLayout.windowWidth,
+        kLayout.windowHeight,
         nullptr,
         nullptr,
         instance_,
@@ -58,10 +97,10 @@ void OverlayWindow::show(const WindowList& windows) {
 
     const int screenWidth = GetSystemMetrics(SM_CXSCREEN);
     const int screenHeight = GetSystemMetrics(SM_CYSCREEN);
-    const int left = (screenWidth - kWindowWidth) / 2;
-    const int top = (screenHeight - kWindowHeight) / 3;
+    const int left = (screenWidth - kLayout.windowWidth) / 2;
+    const int top = (screenHeight - kLayout.windowHeight) / 3;
 
-    SetWindowPos(hwnd_, HWND_TOPMOST, left, top, kWindowWidth, kWindowHeight, SWP_SHOWWINDOW);
+    SetWindowPos(hwnd_, HWND_TOPMOST, left, top, kLayout.windowWidth, kLayout.windowHeight, SWP_SHOWWINDOW);
     SetForegroundWindow(hwnd_);
     InvalidateRect(hwnd_, nullptr, TRUE);
 }
@@ -122,48 +161,57 @@ LRESULT OverlayWindow::handleMessage(UINT message, WPARAM wparam, LPARAM lparam)
         const HDC dc = BeginPaint(hwnd_, &paint);
         RECT rect{};
         GetClientRect(hwnd_, &rect);
-        FillRect(dc, &rect, reinterpret_cast<HBRUSH>(GetStockObject(DKGRAY_BRUSH)));
+        fillRect(dc, rect, kTheme.background);
         SetBkMode(dc, TRANSPARENT);
-        SetTextColor(dc, RGB(245, 245, 245));
-
-        int y = 24;
-        TextOutW(dc, 24, y, L"Advanced Alt+Tab", 16);
+        SetTextColor(dc, kTheme.text);
 
         RECT searchRect{
-            kPadding,
-            kSearchTop,
-            kWindowWidth - kPadding,
-            kSearchTop + kSearchHeight,
+            kLayout.padding,
+            kLayout.searchTop,
+            kLayout.windowWidth - kLayout.padding,
+            kLayout.searchTop + kLayout.searchHeight,
         };
-        FillRect(dc, &searchRect, reinterpret_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
-        FrameRect(dc, &searchRect, reinterpret_cast<HBRUSH>(GetStockObject(GRAY_BRUSH)));
+        fillRect(dc, searchRect, kTheme.searchBackground);
+        frameRect(dc, searchRect, kTheme.border);
 
-        const std::wstring displayQuery = query_.empty() ? L"Search..." : query_;
-        SetTextColor(dc, query_.empty() ? RGB(160, 160, 160) : RGB(245, 245, 245));
-        TextOutW(dc, kPadding + 12, kSearchTop + 10, displayQuery.c_str(), static_cast<int>(displayQuery.size()));
-        SetTextColor(dc, RGB(245, 245, 245));
+        const std::wstring displayQuery = query_.empty() ? kText.searchPlaceholder : query_;
+        SetTextColor(dc, query_.empty() ? kTheme.mutedText : kTheme.text);
+        TextOutW(
+            dc,
+            kLayout.padding + kLayout.searchTextInsetX,
+            kLayout.searchTop + kLayout.searchTextInsetY,
+            displayQuery.c_str(),
+            static_cast<int>(displayQuery.size())
+        );
+        SetTextColor(dc, kTheme.text);
 
-        for (size_t index = 0; index < visibleWindows_.size() && index < kMaxVisibleResults; ++index) {
+        for (size_t index = 0; index < visibleWindows_.size() && index < kLayout.maxVisibleResults; ++index) {
             const auto& title = visibleWindows_[index].title;
-            const int rowTop = kListTop + static_cast<int>(index) * kRowHeight;
+            const int rowTop = kLayout.listTop + static_cast<int>(index) * kLayout.rowHeight;
 
             if (index == selectedIndex_) {
                 RECT highlightRect{
-                    kListLeft,
-                    rowTop - 4,
-                    kWindowWidth - kListLeft,
-                    rowTop + kRowHeight - 4,
+                    kLayout.listLeft,
+                    rowTop + kLayout.selectionTopOffset,
+                    kLayout.windowWidth - kLayout.listLeft,
+                    rowTop + kLayout.rowHeight + kLayout.selectionBottomOffset,
                 };
-                FillRect(dc, &highlightRect, reinterpret_cast<HBRUSH>(GetStockObject(GRAY_BRUSH)));
+                fillRect(dc, highlightRect, kTheme.selection);
+                frameRect(dc, highlightRect, kTheme.border);
             }
 
-            TextOutW(dc, 32, rowTop, title.c_str(), static_cast<int>(title.size()));
+            TextOutW(dc, kLayout.listTextLeft, rowTop, title.c_str(), static_cast<int>(title.size()));
         }
 
         if (visibleWindows_.empty()) {
-            constexpr wchar_t noMatchesText[] = L"No matching windows";
-            SetTextColor(dc, RGB(190, 190, 190));
-            TextOutW(dc, 32, kListTop, noMatchesText, static_cast<int>(std::size(noMatchesText) - 1));
+            SetTextColor(dc, kTheme.emptyText);
+            TextOutW(
+                dc,
+                kLayout.listTextLeft,
+                kLayout.listTop,
+                kText.noMatches,
+                static_cast<int>(wcslen(kText.noMatches))
+            );
         }
 
         EndPaint(hwnd_, &paint);
@@ -220,7 +268,7 @@ void OverlayWindow::handleTextInput(wchar_t character) {
 }
 
 void OverlayWindow::moveSelection(int direction) {
-    const size_t resultCount = std::min(visibleWindows_.size(), kMaxVisibleResults);
+    const size_t resultCount = std::min(visibleWindows_.size(), kLayout.maxVisibleResults);
     if (resultCount == 0) {
         return;
     }
